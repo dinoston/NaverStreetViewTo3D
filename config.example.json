@@ -1,0 +1,22 @@
+{
+  "input_dir": "input/panoramas",
+  "screenshot_dir": "input/screenshots",
+  "output_dir": "output",
+  "mask_vegetation": true,
+  "mask_model": "nvidia/segformer-b0-finetuned-ade-512-512",
+  "mask_labels": ["tree", "grass", "plant", "flower"],
+  "mask_dilation": 7,
+  "face_size": 1600,
+  "fov": 90.0,
+  "yaw_step": 45,
+  "pitches": [0.0],
+  "include_zenith": false,
+  "jpeg_quality": 95,
+  "camera_model": "PINHOLE",
+  "matcher": "sequential",
+  "overlap": 12,
+  "use_gpu": true,
+  "three_dgs_repo": "external/gaussian-splatting",
+  "sugar_repo": "external/SuGaR",
+  "iterations": 30000
+}

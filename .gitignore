@@ -1,0 +1,31 @@
+# Local Python and Conda environments
+.venv/
+tools/gs-env/
+tools/miniforge3/
+tools/Miniforge3-Windows-x86_64.exe
+
+# Downloaded model weights and third-party repositories
+tools/model-cache/
+external/*
+!external/.gitkeep
+
+# User inputs and generated reconstruction outputs
+input/panoramas/*
+!input/panoramas/.gitkeep
+input/screenshots/*
+!input/screenshots/.gitkeep
+output/
+
+# Python caches/build products
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+
+# Editor and OS files
+.idea/
+.vscode/
+Thumbs.db
+.DS_Store
