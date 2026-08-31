@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 from .config import PipelineConfig
-from .fast import reconstruct_vggt
+from .fast import clean_point_cloud_and_make_mesh, reconstruct_vggt
 from .masking import mask_vegetation
 from .panorama import decompose, prepare_screenshots, validate_panoramas, validate_screenshots
 from .util import executable, images_in, run, write_status
@@ -184,8 +184,15 @@ class Pipeline:
             self.frames, self.output, (self.project / self.config.vggt_repo).resolve(),
             self.config.vggt_model, self.config.fast_max_images,
             self.config.fast_confidence_percentile, self.config.fast_pixel_stride,
+            self.config.mask_model,
+            self.output / "frames.json",
         )
-        write_status(self.output, "fast", "complete", point_cloud=str(result))
+        mesh_result = clean_point_cloud_and_make_mesh(result, self.output / "mesh")
+        write_status(
+            self.output, "fast", "complete", point_cloud=str(result),
+            clean_point_cloud=str(mesh_result[0]) if mesh_result else None,
+            preview_mesh=str(mesh_result[1]) if mesh_result else None,
+        )
 
     def all(self, force: bool = False, stop_after: str | None = None) -> None:
         stages = [("preprocess", self.preprocess), ("align", self.align), ("train", self.train), ("mesh", self.mesh)]

@@ -100,6 +100,19 @@ cd C:\Users\KETI\Downloads\streetview-3d-builder
 기본 설정은 최대 16장의 입력을 균등 선택하고 신뢰도가 낮은 점을 제거합니다.
 서로 다른 거리뷰 촬영 지점 사이의 이동 시차가 있어야 온전한 형상이 나옵니다.
 
+빠른 모드는 파일명의 촬영 시각을 이용해 30분 이내에 찍은 가장 큰 사진 묶음을
+한 번의 촬영 세션으로 선택합니다. 과거 테스트 사진이 같은 폴더에 남아 있어도
+자동 제외합니다. 각 사진에서는 화면의 모든 건물이 아니라 주 대상 건물 한 동의
+실루엣을 선택하며, 결과 마스크는 `output\building_masks`에서 확인할 수 있습니다.
+
+추가 결과:
+
+- `output\pointcloud\fast_building_points_clean.ply`: 작은 분리 조각과 통계 이상점을 제거한 점군
+- `output\mesh\fast_building_mesh.ply`: 빠른 확인용 Poisson 메시
+
+메시는 형태 확인용 초안입니다. 정밀 편집에는 clean PLY를 CloudCompare/Blender에서
+정리한 뒤 별도로 메시화하는 것을 권장합니다.
+
 기본 `facebook/VGGT-1B` 체크포인트는 CC-BY-NC-4.0 연구용입니다. 회사 제품이나
 상업 배포에는 Meta의 승인을 받은 `VGGT-1B-Commercial` 체크포인트로 설정을
 변경해야 합니다.

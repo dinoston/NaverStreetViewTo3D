@@ -17,7 +17,7 @@ if (-not (Test-Path (Join-Path $vggtRoot "vggt\models\vggt.py"))) {
     if ($LASTEXITCODE -ne 0) { throw "Could not clone VGGT." }
 }
 
-& $python -m pip install einops huggingface_hub hf_xet plyfile
+& $python -m pip install einops huggingface_hub hf_xet plyfile open3d
 if ($LASTEXITCODE -ne 0) { throw "Could not install fast-mode dependencies." }
 
 $env:HF_HOME = Join-Path $PSScriptRoot "tools\model-cache"
