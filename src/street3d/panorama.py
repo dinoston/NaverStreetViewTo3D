@@ -15,11 +15,29 @@ def _imports():
     return cv2, np
 
 
+def _read_image(path: Path):
+    """Read an image through bytes so Windows paths may contain Korean characters."""
+    cv2, np = _imports()
+    try:
+        encoded = np.fromfile(str(path), dtype=np.uint8)
+    except OSError:
+        return None
+    return cv2.imdecode(encoded, cv2.IMREAD_COLOR)
+
+
+def _write_jpeg(path: Path, image, quality: int) -> bool:
+    cv2, _ = _imports()
+    ok, encoded = cv2.imencode(".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, quality])
+    if ok:
+        encoded.tofile(str(path))
+    return bool(ok)
+
+
 def validate_panoramas(input_dir: Path) -> list[dict[str, object]]:
     cv2, _ = _imports()
     records = []
     for path in images_in(input_dir):
-        image = cv2.imread(str(path), cv2.IMREAD_COLOR)
+        image = _read_image(path)
         if image is None:
             records.append({"file": path.name, "valid": False, "reason": "decode_failed"})
             continue
@@ -40,7 +58,7 @@ def validate_screenshots(input_dir: Path) -> list[dict[str, object]]:
     cv2, _ = _imports()
     records = []
     for path in images_in(input_dir):
-        image = cv2.imread(str(path), cv2.IMREAD_COLOR)
+        image = _read_image(path)
         if image is None:
             records.append({"file": path.name, "valid": False, "reason": "decode_failed"})
             continue
@@ -87,14 +105,14 @@ def decompose(input_dir: Path, output_dir: Path, face_size: int, fov: float, yaw
     if include_zenith:
         views += [(0.0, 90.0), (0.0, -90.0)]
     for pano_index, path in enumerate(images_in(input_dir)):
-        image = cv2.imread(str(path), cv2.IMREAD_COLOR)
+        image = _read_image(path)
         if image is None:
             continue
         for view_index, (yaw, pitch) in enumerate(views):
             frame = equirect_to_perspective(image, yaw, pitch, fov, face_size)
             name = f"p{pano_index:04d}_v{view_index:02d}_y{yaw:+06.1f}_p{pitch:+05.1f}.jpg"
             destination = output_dir / name
-            cv2.imwrite(str(destination), frame, [cv2.IMWRITE_JPEG_QUALITY, jpeg_quality])
+            _write_jpeg(destination, frame, jpeg_quality)
             manifest.append({"image": name, "source": path.name, "yaw": yaw, "pitch": pitch, "fov": fov})
     return manifest
 
@@ -105,15 +123,16 @@ def prepare_screenshots(input_dir: Path, output_dir: Path, jpeg_quality: int) ->
     output_dir.mkdir(parents=True, exist_ok=True)
     manifest: list[dict[str, object]] = []
     for index, path in enumerate(images_in(input_dir)):
-        image = cv2.imread(str(path), cv2.IMREAD_COLOR)
+        image = _read_image(path)
         if image is None:
             continue
         h, w = image.shape[:2]
         if w < 320 or h < 240:
             continue
-        name = f"s{index:04d}_{path.stem}.jpg"
+        # Keep generated filenames ASCII-only for COLMAP and Windows console compatibility.
+        name = f"s{index:04d}.jpg"
         destination = output_dir / name
-        cv2.imwrite(str(destination), image, [cv2.IMWRITE_JPEG_QUALITY, jpeg_quality])
+        _write_jpeg(destination, image, jpeg_quality)
         manifest.append({
             "image": name,
             "source": path.name,

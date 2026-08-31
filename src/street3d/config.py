@@ -27,6 +27,11 @@ class PipelineConfig:
     three_dgs_repo: str = "external/gaussian-splatting"
     sugar_repo: str = "external/SuGaR"
     iterations: int = 30000
+    vggt_repo: str = "external/vggt"
+    vggt_model: str = "facebook/VGGT-1B"
+    fast_max_images: int = 16
+    fast_confidence_percentile: float = 55.0
+    fast_pixel_stride: int = 2
 
     @classmethod
     def load(cls, path: Path) -> "PipelineConfig":

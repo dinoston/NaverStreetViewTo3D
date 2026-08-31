@@ -16,7 +16,7 @@ def parser() -> argparse.ArgumentParser:
     sub = root.add_subparsers(dest="command", required=True)
     sub.add_parser("init")
     sub.add_parser("doctor")
-    for name in ("preprocess", "align", "train", "all"):
+    for name in ("preprocess", "align", "train", "fast", "all"):
         item = sub.add_parser(name)
         item.add_argument("--force", action="store_true")
         if name == "all":
@@ -54,6 +54,8 @@ def main() -> None:
             pipeline.train(args.force)
         elif args.command == "mesh":
             pipeline.mesh()
+        elif args.command == "fast":
+            pipeline.fast(args.force)
         elif args.command == "all":
             pipeline.all(args.force, args.stop_after)
     except (FileNotFoundError, RuntimeError, ValueError) as exc:

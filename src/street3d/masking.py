@@ -24,9 +24,9 @@ def mask_vegetation(
         raise RuntimeError("Masking dependencies missing. Run setup again.") from exc
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    processor = AutoImageProcessor.from_pretrained(model_name)
+    processor = AutoImageProcessor.from_pretrained(model_name, local_files_only=True)
     model = SegformerForSemanticSegmentation.from_pretrained(
-        model_name, use_safetensors=True
+        model_name, use_safetensors=True, local_files_only=True
     ).to(device).eval()
     wanted = {label.casefold() for label in labels}
     excluded_ids = {
@@ -59,6 +59,6 @@ def mask_vegetation(
         if destination != source:
             source.unlink()
         colmap_mask = masks_dir / f"{destination.name}.png"
-        cv2.imwrite(str(colmap_mask), valid)
+        Image.fromarray(valid, mode="L").save(colmap_mask)
         renamed[source.name] = destination.name
     return renamed

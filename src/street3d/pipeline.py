@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from .config import PipelineConfig
+from .fast import reconstruct_vggt
 from .masking import mask_vegetation
 from .panorama import decompose, prepare_screenshots, validate_panoramas, validate_screenshots
 from .util import executable, images_in, run, write_status
@@ -34,6 +35,7 @@ class Pipeline:
         repos = {
             "3dgs": str((self.project / self.config.three_dgs_repo).resolve()),
             "sugar": str((self.project / self.config.sugar_repo).resolve()),
+            "vggt": str((self.project / self.config.vggt_repo).resolve()),
         }
         result = {
             "python_supported": sys.version_info >= (3, 10),
@@ -44,6 +46,7 @@ class Pipeline:
             "ready_colmap": bool(tools["colmap"]),
             "ready_train": Path(repos["3dgs"]).joinpath("train.py").exists(),
             "ready_mesh": Path(repos["sugar"]).exists(),
+            "ready_fast": Path(repos["vggt"]).joinpath("vggt", "models", "vggt.py").exists(),
         }
         return result
 
@@ -108,16 +111,19 @@ class Pipeline:
         if force and database.exists():
             database.unlink()
         gpu = "1" if self.config.use_gpu else "0"
+        has_screenshots = bool(images_in(self.screenshot_dir))
+        single_camera = "0" if has_screenshots else "1"
         feature_command = [colmap_bin, "feature_extractor", "--database_path", database,
                            "--image_path", self.frames, "--ImageReader.camera_model", self.config.camera_model,
-                           "--ImageReader.single_camera", "1", "--SiftExtraction.use_gpu", gpu]
+                           "--ImageReader.single_camera", single_camera, "--SiftExtraction.use_gpu", gpu]
         if self.config.mask_vegetation and self.masks.exists():
             feature_command += ["--ImageReader.mask_path", self.masks]
         run(feature_command, self.logs / "colmap.log")
         matcher = "sequential_matcher" if self.config.matcher == "sequential" else "exhaustive_matcher"
         command = [colmap_bin, matcher, "--database_path", database, "--SiftMatching.use_gpu", gpu]
         if matcher == "sequential_matcher":
-            command += ["--SequentialMatching.overlap", str(self.config.overlap), "--SequentialMatching.loop_detection", "1"]
+            command += ["--SequentialMatching.overlap", str(self.config.overlap),
+                        "--SequentialMatching.loop_detection", "0"]
         run(command, self.logs / "colmap.log")
         run([colmap_bin, "mapper", "--database_path", database, "--image_path", self.frames,
              "--output_path", sparse], self.logs / "colmap.log")
@@ -161,9 +167,25 @@ class Pipeline:
         scene = self.output / "dataset"
         checkpoint = self.output / "3dgs"
         run([sys.executable, script, "-s", scene, "-r", "density", "--high_poly", "True",
-             "--export_obj", "True", "--gs_output_dir", checkpoint],
+             "--export_obj", "True", "--gs_output_dir", checkpoint,
+             "--iteration_to_load", str(self.config.iterations),
+             "--refinement_time", "short"],
             self.logs / "sugar.log", cwd=repo)
         write_status(self.output, "mesh", "complete")
+
+    def fast(self, force: bool = False) -> None:
+        destination = self.output / "pointcloud" / "fast_building_points.ply"
+        if destination.exists() and not force:
+            print(f"[skip] fast point cloud already exists: {destination}")
+            return
+        if not images_in(self.frames):
+            self.preprocess(force=False)
+        result = reconstruct_vggt(
+            self.frames, self.output, (self.project / self.config.vggt_repo).resolve(),
+            self.config.vggt_model, self.config.fast_max_images,
+            self.config.fast_confidence_percentile, self.config.fast_pixel_stride,
+        )
+        write_status(self.output, "fast", "complete", point_cloud=str(result))
 
     def all(self, force: bool = False, stop_after: str | None = None) -> None:
         stages = [("preprocess", self.preprocess), ("align", self.align), ("train", self.train), ("mesh", self.mesh)]

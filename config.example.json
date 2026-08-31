@@ -18,5 +18,10 @@
   "use_gpu": true,
   "three_dgs_repo": "external/gaussian-splatting",
   "sugar_repo": "external/SuGaR",
-  "iterations": 30000
+  "iterations": 30000,
+  "vggt_repo": "external/vggt",
+  "vggt_model": "facebook/VGGT-1B",
+  "fast_max_images": 16,
+  "fast_confidence_percentile": 55.0,
+  "fast_pixel_stride": 2
 }

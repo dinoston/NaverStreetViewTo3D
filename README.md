@@ -86,6 +86,24 @@ cd C:\Users\KETI\Downloads\streetview-3d-builder
 .\run.ps1 preprocess
 ```
 
+### 빠른 포인트 클라우드 모드
+
+긴 COLMAP/3DGS/SuGaR 과정을 건너뛰고 VGGT로 표준 XYZRGB PLY를 생성합니다.
+
+```powershell
+.\setup-fast.ps1  # 최초 한 번만 실행
+.\run.ps1 -Stage fast -Force
+```
+
+결과는 `output\pointcloud\fast_building_points.ply`에 저장됩니다. 처음 한 번은
+약 5 GB의 VGGT 모델 다운로드가 필요하며, 이후에는 로컬 캐시를 사용합니다.
+기본 설정은 최대 16장의 입력을 균등 선택하고 신뢰도가 낮은 점을 제거합니다.
+서로 다른 거리뷰 촬영 지점 사이의 이동 시차가 있어야 온전한 형상이 나옵니다.
+
+기본 `facebook/VGGT-1B` 체크포인트는 CC-BY-NC-4.0 연구용입니다. 회사 제품이나
+상업 배포에는 Meta의 승인을 받은 `VGGT-1B-Commercial` 체크포인트로 설정을
+변경해야 합니다.
+
 생성 결과는 `output/frames`에서 바로 확인할 수 있습니다. 기본값은 파노라마 한 장당 수평 8개 뷰입니다.
 나무가 제외된 흑백 마스크는 `output/masks`에 저장됩니다. `config.json`의 `mask_vegetation`을 `false`로 바꾸면 끌 수 있습니다.
 
