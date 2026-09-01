@@ -109,9 +109,11 @@ cd C:\Users\KETI\Downloads\streetview-3d-builder
 
 - `output\pointcloud\fast_building_points_clean.ply`: 작은 분리 조각과 통계 이상점을 제거한 점군
 - `output\mesh\fast_building_mesh.ply`: 빠른 확인용 Poisson 메시
+- `output\mesh\fast_building_proxy_mesh.ply`: 관측되지 않은 뒤·지붕을 직육면체로 보완한 프록시 메시
 
 메시는 형태 확인용 초안입니다. 정밀 편집에는 clean PLY를 CloudCompare/Blender에서
 정리한 뒤 별도로 메시화하는 것을 권장합니다.
+정제 점군과 두 메시는 자동으로 Z-up 좌표계에 정렬되고 바닥이 Z=0에 배치됩니다.
 
 기본 `facebook/VGGT-1B` 체크포인트는 CC-BY-NC-4.0 연구용입니다. 회사 제품이나
 상업 배포에는 Meta의 승인을 받은 `VGGT-1B-Commercial` 체크포인트로 설정을

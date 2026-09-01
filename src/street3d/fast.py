@@ -125,7 +125,9 @@ def reconstruct_vggt(
 
     sys.path.insert(0, str(repo_dir))
     from vggt.models.vggt import VGGT
+    from vggt.utils.geometry import unproject_depth_map_to_point_map
     from vggt.utils.load_fn import load_and_preprocess_images
+    from vggt.utils.pose_enc import pose_encoding_to_extri_intri
 
     device = torch.device("cuda")
     dtype = torch.bfloat16 if torch.cuda.get_device_capability()[0] >= 8 else torch.float16
@@ -136,9 +138,16 @@ def reconstruct_vggt(
 
     with torch.inference_mode(), torch.amp.autocast("cuda", dtype=dtype):
         tokens, patch_start = model.aggregator(images[None])
-        points, confidence = model.point_head(tokens, images=images[None], patch_start_idx=patch_start)
+        pose_encoding = model.camera_head(tokens)[-1]
+        depth, confidence = model.depth_head(tokens, images=images[None], patch_start_idx=patch_start)
+    # VGGT's authors recommend camera + depth unprojection for more accurate
+    # geometry than the direct point-map branch.
+    extrinsic, intrinsic = pose_encoding_to_extri_intri(pose_encoding, images.shape[-2:])
+    points = unproject_depth_map_to_point_map(
+        depth.squeeze(0).float(), extrinsic.squeeze(0).float(), intrinsic.squeeze(0).float()
+    )[None]
 
-    points = points[0, :, ::pixel_stride, ::pixel_stride].float().cpu().numpy()
+    points = np.asarray(points[0, :, ::pixel_stride, ::pixel_stride], dtype=np.float32)
     confidence = confidence[0, :, ::pixel_stride, ::pixel_stride].float().cpu().numpy()
     colors = images[:, :, ::pixel_stride, ::pixel_stride].permute(0, 2, 3, 1).cpu().numpy()
     target_mask = building_masks[:, ::pixel_stride, ::pixel_stride].numpy().reshape(-1)
@@ -170,6 +179,7 @@ def reconstruct_vggt(
     _write_ply(destination, points, colors_u8, confidence)
     report = {
         "engine": "VGGT",
+        "geometry": "camera_depth_unprojection",
         "model": model_name,
         "input_images": len(sources),
         "ignored_other_sessions": ignored_sessions,
@@ -187,7 +197,7 @@ def reconstruct_vggt(
     return destination
 
 
-def clean_point_cloud_and_make_mesh(point_cloud_path: Path, mesh_dir: Path) -> tuple[Path, Path] | None:
+def clean_point_cloud_and_make_mesh(point_cloud_path: Path, mesh_dir: Path) -> tuple[Path, Path, Path] | None:
     """Keep the main spatial component and make a quick Poisson preview mesh."""
     try:
         import open3d as o3d
@@ -210,6 +220,18 @@ def clean_point_cloud_and_make_mesh(point_cloud_path: Path, mesh_dir: Path) -> t
     cloud = cloud.voxel_down_sample(max(diagonal / 350.0, 1e-6))
     cloud, _ = cloud.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.5)
 
+    # VGGT's world frame is arbitrary. Align the dominant facade horizontally,
+    # put its thickness on Y, and make height Z-up for DCC/CAD applications.
+    clean_points = np.asarray(cloud.points)
+    center = np.mean(clean_points, axis=0)
+    _, _, axes = np.linalg.svd(clean_points - center, full_matrices=False)
+    basis = np.column_stack((axes[0], axes[2], axes[1]))
+    if np.linalg.det(basis) < 0:
+        basis[:, 1] *= -1
+    oriented = (clean_points - center) @ basis
+    oriented[:, 2] -= oriented[:, 2].min()
+    cloud.points = o3d.utility.Vector3dVector(oriented)
+
     clean_path = point_cloud_path.with_name("fast_building_points_clean.ply")
     o3d.io.write_point_cloud(str(clean_path), cloud, write_ascii=False, compressed=False)
     cloud.estimate_normals(o3d.geometry.KDTreeSearchParamHybrid(radius=diagonal / 35.0, max_nn=50))
@@ -222,8 +244,18 @@ def clean_point_cloud_and_make_mesh(point_cloud_path: Path, mesh_dir: Path) -> t
     mesh_dir.mkdir(parents=True, exist_ok=True)
     mesh_path = mesh_dir / "fast_building_mesh.ply"
     o3d.io.write_triangle_mesh(str(mesh_path), mesh, write_ascii=False, compressed=False)
+
+    # A clearly labelled architectural proxy closes unseen roof/back surfaces.
+    lower, upper = np.percentile(oriented, [1.0, 99.0], axis=0)
+    size = np.maximum(upper - lower, 1e-4)
+    proxy = o3d.geometry.TriangleMesh.create_box(*size)
+    proxy.translate(lower)
+    proxy.compute_vertex_normals()
+    proxy.paint_uniform_color([0.45, 0.48, 0.52])
+    proxy_path = mesh_dir / "fast_building_proxy_mesh.ply"
+    o3d.io.write_triangle_mesh(str(proxy_path), proxy, write_ascii=False, compressed=False)
     print(
         f"[ok] clean cloud + preview mesh: {len(cloud.points):,} points, "
         f"{len(mesh.triangles):,} triangles ({time.perf_counter() - started:.2f} sec)"
     )
-    return clean_path, mesh_path
+    return clean_path, mesh_path, proxy_path

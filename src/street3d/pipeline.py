@@ -192,6 +192,7 @@ class Pipeline:
             self.output, "fast", "complete", point_cloud=str(result),
             clean_point_cloud=str(mesh_result[0]) if mesh_result else None,
             preview_mesh=str(mesh_result[1]) if mesh_result else None,
+            proxy_mesh=str(mesh_result[2]) if mesh_result else None,
         )
 
     def all(self, force: bool = False, stop_after: str | None = None) -> None:
