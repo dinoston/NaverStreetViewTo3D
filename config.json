@@ -1,6 +1,7 @@
 {
   "input_dir": "input/panoramas",
   "screenshot_dir": "input/screenshots",
+  "target_annotation_dir": "input/target",
   "output_dir": "output",
   "mask_vegetation": true,
   "mask_model": "nvidia/segformer-b0-finetuned-ade-512-512",
@@ -13,7 +14,7 @@
   "include_zenith": false,
   "jpeg_quality": 95,
   "camera_model": "PINHOLE",
-  "matcher": "sequential",
+  "matcher": "exhaustive",
   "overlap": 12,
   "use_gpu": true,
   "three_dgs_repo": "external/gaussian-splatting",
@@ -23,5 +24,6 @@
   "vggt_model": "facebook/VGGT-1B",
   "fast_max_images": 16,
   "fast_confidence_percentile": 55.0,
-  "fast_pixel_stride": 2
+  "fast_pixel_stride": 2,
+  "splat_iterations": 7000
 }

@@ -7,9 +7,11 @@ import sys
 from pathlib import Path
 
 from .config import PipelineConfig
-from .fast import clean_point_cloud_and_make_mesh, reconstruct_vggt
+from .fast import _latest_capture_session, clean_point_cloud_and_make_mesh, reconstruct_vggt
 from .masking import mask_vegetation
 from .panorama import decompose, prepare_screenshots, validate_panoramas, validate_screenshots
+from .splat import prepare_building_splat_dataset
+from .sfm import filter_colmap_building_points, write_filtered_colmap_text_model
 from .util import executable, images_in, run, write_status
 
 
@@ -106,6 +108,8 @@ class Pipeline:
         if sparse.exists() and any(sparse.rglob("images.bin")) and not force:
             print(f"[skip] COLMAP model already exists: {sparse}")
             return
+        if force and sparse.exists():
+            shutil.rmtree(sparse)
         database = self.colmap / "database.db"
         sparse.mkdir(parents=True, exist_ok=True)
         if force and database.exists():
@@ -113,8 +117,20 @@ class Pipeline:
         gpu = "1" if self.config.use_gpu else "0"
         has_screenshots = bool(images_in(self.screenshot_dir))
         single_camera = "0" if has_screenshots else "1"
+        alignment_frames = self.frames
+        sources, ignored = _latest_capture_session(
+            images_in(self.frames), self.output / "frames.json"
+        )
+        if ignored:
+            alignment_frames = self.output / "alignment_frames"
+            if alignment_frames.exists():
+                shutil.rmtree(alignment_frames)
+            alignment_frames.mkdir(parents=True)
+            for source in sources:
+                shutil.copy2(source, alignment_frames / source.name)
+            print(f"[align] latest capture session: {len(sources)} images ({len(ignored)} ignored)")
         feature_command = [colmap_bin, "feature_extractor", "--database_path", database,
-                           "--image_path", self.frames, "--ImageReader.camera_model", self.config.camera_model,
+                           "--image_path", alignment_frames, "--ImageReader.camera_model", self.config.camera_model,
                            "--ImageReader.single_camera", single_camera, "--SiftExtraction.use_gpu", gpu]
         if self.config.mask_vegetation and self.masks.exists():
             feature_command += ["--ImageReader.mask_path", self.masks]
@@ -125,7 +141,7 @@ class Pipeline:
             command += ["--SequentialMatching.overlap", str(self.config.overlap),
                         "--SequentialMatching.loop_detection", "0"]
         run(command, self.logs / "colmap.log")
-        run([colmap_bin, "mapper", "--database_path", database, "--image_path", self.frames,
+        run([colmap_bin, "mapper", "--database_path", database, "--image_path", alignment_frames,
              "--output_path", sparse], self.logs / "colmap.log")
         models = sorted(p for p in sparse.iterdir() if p.is_dir() and (p / "images.bin").exists())
         if not models:
@@ -186,14 +202,81 @@ class Pipeline:
             self.config.fast_confidence_percentile, self.config.fast_pixel_stride,
             self.config.mask_model,
             self.output / "frames.json",
+            (self.project / self.config.target_annotation_dir).resolve(),
         )
         mesh_result = clean_point_cloud_and_make_mesh(result, self.output / "mesh")
+        sfm_result = None
+        sfm_mesh_result = None
+        sparse_model = self.colmap / "sparse" / "0"
+        colmap_bin = self._colmap_executable()
+        if colmap_bin and (sparse_model / "images.bin").exists():
+            text_model = self.colmap / "text"
+            text_model.mkdir(parents=True, exist_ok=True)
+            run(
+                [colmap_bin, "model_converter", "--input_path", sparse_model,
+                 "--output_path", text_model, "--output_type", "TXT"],
+                self.logs / "fast.log",
+            )
+            report = json.loads(result.with_suffix(".json").read_text(encoding="utf-8"))
+            sfm_result = filter_colmap_building_points(
+                text_model, self.output / "building_masks", list(report["used_images"]),
+                self.output / "pointcloud" / "sfm_building_points.ply",
+            )
+            if sfm_result:
+                sfm_mesh_result = clean_point_cloud_and_make_mesh(sfm_result, self.output / "mesh")
         write_status(
             self.output, "fast", "complete", point_cloud=str(result),
             clean_point_cloud=str(mesh_result[0]) if mesh_result else None,
             preview_mesh=str(mesh_result[1]) if mesh_result else None,
             proxy_mesh=str(mesh_result[2]) if mesh_result else None,
+            sfm_point_cloud=str(sfm_result) if sfm_result else None,
+            sfm_clean_point_cloud=str(sfm_mesh_result[0]) if sfm_mesh_result else None,
         )
+
+    def splat(self, force: bool = False) -> None:
+        repo = (self.project / self.config.three_dgs_repo).resolve()
+        train_py = repo / "train.py"
+        if not train_py.exists():
+            raise RuntimeError(f"3DGS repository missing: {train_py}")
+        model = self.output / "3dgs_building"
+        point_cloud = model / "point_cloud" / f"iteration_{self.config.splat_iterations}" / "point_cloud.ply"
+        if point_cloud.exists() and not force:
+            print(f"[skip] building Gaussian Splat already exists: {point_cloud}")
+            return
+        if not (self.output / "pointcloud" / "fast_building_points.json").exists():
+            self.fast(force=False)
+        report_path = self.output / "pointcloud" / "fast_building_points.json"
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        used_names = list(report.get("used_images", []))
+        dataset_target = self.output / "dataset_building"
+        if dataset_target.exists():
+            shutil.rmtree(dataset_target)
+        dataset_target.mkdir(parents=True)
+        text_model = self.colmap / "text"
+        if not (text_model / "images.txt").exists():
+            raise RuntimeError("COLMAP text model is missing. Run the fast stage again.")
+        model_views, model_points = write_filtered_colmap_text_model(
+            text_model, self.output / "building_masks", used_names,
+            dataset_target / "sparse" / "0",
+        )
+        dataset, kept = prepare_building_splat_dataset(
+            self.frames, self.output / "building_masks", report_path, dataset_target,
+        )
+        if model_views < 2 or model_points < 100:
+            raise RuntimeError(
+                f"Too little filtered COLMAP data for 3DGS: {model_views} views, {model_points} points"
+            )
+        if force and model.exists():
+            shutil.rmtree(model)
+        run(
+            [sys.executable, train_py, "-s", dataset, "-m", model,
+             "--iterations", str(self.config.splat_iterations)],
+            self.logs / "3dgs_building.log", cwd=repo,
+        )
+        if not point_cloud.exists():
+            raise RuntimeError(f"3DGS training finished without the expected output: {point_cloud}")
+        write_status(self.output, "splat", "complete", views=kept, gaussian_ply=str(point_cloud))
+        print(f"[ok] building Gaussian Splat: {point_cloud}")
 
     def all(self, force: bool = False, stop_after: str | None = None) -> None:
         stages = [("preprocess", self.preprocess), ("align", self.align), ("train", self.train), ("mesh", self.mesh)]

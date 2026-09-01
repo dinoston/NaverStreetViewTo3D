@@ -55,6 +55,7 @@ This project is intended for research and prototyping in street-level 3D reconst
 
 - `input/panoramas`: 2:1 비율의 equirectangular 파노라마 JPG/PNG
 - `input/screenshots`: 네이버 지도 등에서 저장한 일반 원근 화면 캡처 JPG/PNG
+- `input/target`: `input/screenshots` 사진을 복사해 원하는 건물 둘레에 빨간 사각형을 표시한 JPG/PNG
 
 파일 이름은 촬영 이동 순서와 같도록 `0001.jpg`, `0002.jpg`처럼 지정하는 것을 권장합니다. 일반 캡처는 재투영하지 않고 COLMAP 입력으로 바로 복사됩니다.
 
@@ -66,6 +67,21 @@ This project is intended for research and prototyping in street-level 3D reconst
 - 일반 캡처는 지도 UI를 최대한 숨기고, 같은 건물이 화면의 60% 이상 보이도록 저장
 - 일반 캡처는 한 지점에서 회전만 하지 말고 건물 주위를 이동하며 촬영
 - 서로 다른 계절/시간대 이미지는 가급적 섞지 않을 것
+
+### 원하는 건물 빨간 박스로 지정하기
+
+주변 건물이나 나무가 함께 찍힌 경우 빨간 박스 지정이 결과를 크게 개선합니다.
+원본은 반드시 `input/screenshots`에 그대로 두고, 복사본에 **빨간색 테두리만** 그려
+`input/target`에 넣습니다. 파일명은 달라도 됩니다. 프로그램이 특징점을 이용해 원본을
+찾고, 다른 시점에서도 같은 건물 영역을 자동 추적합니다.
+
+- 최소 1장으로 동작하지만 정면·왼쪽·오른쪽 3~5장에 각각 박스를 그리는 것을 권장
+- 박스 안에는 목표 건물 전체를 넣고 이웃 건물·도로·하늘은 최대한 제외
+- 테두리는 선명한 빨간색, 적당히 굵은 선으로 표시
+- 가려진 뒤쪽이나 지붕은 사진에 없으면 복원할 수 없음
+
+선택 결과는 `output/building_previews`에서 확인합니다. 초록색은 사용된 시점,
+빨간색은 제외된 시점입니다.
 
 ## 설치
 
@@ -110,10 +126,28 @@ cd C:\Users\KETI\Downloads\streetview-3d-builder
 - `output\pointcloud\fast_building_points_clean.ply`: 작은 분리 조각과 통계 이상점을 제거한 점군
 - `output\mesh\fast_building_mesh.ply`: 빠른 확인용 Poisson 메시
 - `output\mesh\fast_building_proxy_mesh.ply`: 관측되지 않은 뒤·지붕을 직육면체로 보완한 프록시 메시
+- `output\pointcloud\fast_building_points_preview.png`: 정면·상단·측면 점군 미리보기
+- `output\pointcloud\sfm_building_points_clean.ply`: 여러 사진에서 일치한 COLMAP 특징점만 남긴 보수적 기준 점군
 
 메시는 형태 확인용 초안입니다. 정밀 편집에는 clean PLY를 CloudCompare/Blender에서
 정리한 뒤 별도로 메시화하는 것을 권장합니다.
 정제 점군과 두 메시는 자동으로 Z-up 좌표계에 정렬되고 바닥이 Z=0에 배치됩니다.
+
+### 목표 건물 3D Gaussian Splatting
+
+COLMAP 정렬 뒤, 빨간 박스로 추적된 유효 사진과 건물 점만으로 3DGS를 학습합니다.
+
+```powershell
+.\run.ps1 -Stage align -Force
+.\run.ps1 -Stage fast -Force
+.\run.ps1 -Stage splat -Force
+```
+
+Gaussian PLY는
+`output\3dgs_building\point_cloud\iteration_7000\point_cloud.ply`에 저장됩니다.
+기본 7,000회 학습은 이 PC에서 약 2~3분이며 `config.json`의
+`splat_iterations`로 조절할 수 있습니다. 스크린샷 사이 시차가 작거나 건물의 한 면만
+관측되면 입력 화면에서는 잘 보이더라도 자유 시점의 기하가 늘어질 수 있습니다.
 
 기본 `facebook/VGGT-1B` 체크포인트는 CC-BY-NC-4.0 연구용입니다. 회사 제품이나
 상업 배포에는 Meta의 승인을 받은 `VGGT-1B-Commercial` 체크포인트로 설정을
@@ -155,6 +189,11 @@ output/
   colmap/              database 및 sparse model
   dataset/             3DGS 입력 데이터
   3dgs/                학습 checkpoint와 Gaussian PLY
+  dataset_building/    빨간 박스로 선택된 건물 전용 3DGS 데이터
+  3dgs_building/       목표 건물 Gaussian checkpoint와 PLY
+  building_previews/   시점별 목표 건물 선택 확인 이미지
+  pointcloud/          빠른 점군, 정제 점군, SfM 기준 점군
+  mesh/                Poisson 초안 메시와 프록시 메시
   logs/                 단계별 로그
   status.json           단계 진행 상태
 ```

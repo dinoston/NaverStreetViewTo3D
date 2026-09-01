@@ -62,6 +62,34 @@ def _write_ply(path: Path, points: np.ndarray, colors: np.ndarray, confidence: n
     PlyData([PlyElement.describe(vertex, "vertex")], text=False).write(path)
 
 
+def _write_projection_preview(cloud, destination: Path) -> None:
+    """Write front/top/side point projections for quick geometry QA."""
+    import cv2
+
+    points = np.asarray(cloud.points)
+    colors = np.asarray(cloud.colors)
+    if not len(points):
+        return
+    if len(colors) != len(points):
+        colors = np.full((len(points), 3), 0.72, dtype=np.float64)
+    panels = []
+    for title, horizontal, vertical in (("FRONT  X-Z", 0, 2), ("TOP  X-Y", 0, 1), ("SIDE  Y-Z", 1, 2)):
+        panel = np.full((620, 620, 3), 30, dtype=np.uint8)
+        coordinates = points[:, [horizontal, vertical]]
+        lower, upper = np.percentile(coordinates, [1, 99], axis=0)
+        span = np.maximum(upper - lower, 1e-8)
+        normalized = np.clip((coordinates - lower) / span, 0, 1)
+        pixels = (normalized * 559 + 30).astype(np.int32)
+        pixels[:, 1] = 619 - pixels[:, 1]
+        bgr = np.clip(colors[:, ::-1] * 255, 0, 255).astype(np.uint8)
+        for (x, y), color in zip(pixels, bgr):
+            cv2.circle(panel, (int(x), int(y)), 1, tuple(map(int, color)), -1)
+        cv2.putText(panel, title, (18, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.72, (245, 245, 245), 2)
+        panels.append(panel)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    cv2.imwrite(str(destination), np.concatenate(panels, axis=1))
+
+
 def _load_padded_masks(paths: list[Path], target_size: int = 518):
     import torch
     from PIL import Image
@@ -96,6 +124,7 @@ def reconstruct_vggt(
     pixel_stride: int,
     segmentation_model: str,
     manifest_path: Path,
+    target_annotation_dir: Path | None = None,
 ) -> Path:
     try:
         import torch
@@ -113,7 +142,7 @@ def reconstruct_vggt(
     sources, ignored_sessions = _latest_capture_session(sources, manifest_path)
     print(f"[fast] capture session: {len(sources)} images ({len(ignored_sessions)} older/unrelated ignored)")
     building_mask_paths, segmentation_report = extract_target_building_masks(
-        sources, output_dir / "building_masks", segmentation_model
+        sources, output_dir / "building_masks", segmentation_model, target_annotation_dir
     )
     usable = [
         path for path, item in zip(sources, segmentation_report)
@@ -143,6 +172,14 @@ def reconstruct_vggt(
     # VGGT's authors recommend camera + depth unprojection for more accurate
     # geometry than the direct point-map branch.
     extrinsic, intrinsic = pose_encoding_to_extri_intri(pose_encoding, images.shape[-2:])
+    rotations = extrinsic[0, :, :3, :3].float().cpu().numpy()
+    # COLMAP/VGGT camera Y points downward in the image.  Transform camera-up
+    # into the world frame and average it to obtain a stable scene gravity axis.
+    camera_up = np.einsum("sji,j->si", rotations, np.array([0.0, -1.0, 0.0], np.float32))
+    reference_up = camera_up[0]
+    camera_up[np.einsum("si,i->s", camera_up, reference_up) < 0] *= -1
+    world_up = camera_up.mean(axis=0)
+    world_up /= max(float(np.linalg.norm(world_up)), 1e-8)
     points = unproject_depth_map_to_point_map(
         depth.squeeze(0).float(), extrinsic.squeeze(0).float(), intrinsic.squeeze(0).float()
     )[None]
@@ -188,6 +225,7 @@ def reconstruct_vggt(
         "confidence_percentile": confidence_percentile,
         "confidence_threshold": threshold,
         "pixel_stride": pixel_stride,
+        "world_up": world_up.tolist(),
         "building_segmentation": segmentation_report,
         "seconds": round(time.perf_counter() - started, 2),
         "warning": "Geometry still requires translational parallax between Street View positions.",
@@ -220,20 +258,40 @@ def clean_point_cloud_and_make_mesh(point_cloud_path: Path, mesh_dir: Path) -> t
     cloud = cloud.voxel_down_sample(max(diagonal / 350.0, 1e-6))
     cloud, _ = cloud.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.5)
 
-    # VGGT's world frame is arbitrary. Align the dominant facade horizontally,
-    # put its thickness on Y, and make height Z-up for DCC/CAD applications.
+    # VGGT's world frame is arbitrary.  Use camera-derived gravity for Z-up,
+    # then choose the dominant horizontal extent as X.
     clean_points = np.asarray(cloud.points)
     center = np.mean(clean_points, axis=0)
-    _, _, axes = np.linalg.svd(clean_points - center, full_matrices=False)
-    basis = np.column_stack((axes[0], axes[2], axes[1]))
+    report_path = point_cloud_path.with_suffix(".json")
+    world_up = None
+    if report_path.exists():
+        try:
+            world_up = np.asarray(json.loads(report_path.read_text(encoding="utf-8")).get("world_up"), dtype=float)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            world_up = None
+    if world_up is None or world_up.shape != (3,) or np.linalg.norm(world_up) < 0.5:
+        _, _, axes = np.linalg.svd(clean_points - center, full_matrices=False)
+        world_up = axes[1]
+    world_up = world_up / np.linalg.norm(world_up)
+    centered = clean_points - center
+    horizontal = centered - np.outer(centered @ world_up, world_up)
+    _, _, horizontal_axes = np.linalg.svd(horizontal, full_matrices=False)
+    x_axis = horizontal_axes[0]
+    x_axis -= world_up * np.dot(x_axis, world_up)
+    x_axis /= np.linalg.norm(x_axis)
+    y_axis = np.cross(world_up, x_axis)
+    y_axis /= np.linalg.norm(y_axis)
+    basis = np.column_stack((x_axis, y_axis, world_up))
     if np.linalg.det(basis) < 0:
         basis[:, 1] *= -1
-    oriented = (clean_points - center) @ basis
+    oriented = centered @ basis
     oriented[:, 2] -= oriented[:, 2].min()
     cloud.points = o3d.utility.Vector3dVector(oriented)
 
-    clean_path = point_cloud_path.with_name("fast_building_points_clean.ply")
+    stem = point_cloud_path.stem
+    clean_path = point_cloud_path.with_name(f"{stem}_clean.ply")
     o3d.io.write_point_cloud(str(clean_path), cloud, write_ascii=False, compressed=False)
+    _write_projection_preview(cloud, point_cloud_path.with_name(f"{stem}_preview.png"))
     cloud.estimate_normals(o3d.geometry.KDTreeSearchParamHybrid(radius=diagonal / 35.0, max_nn=50))
     cloud.orient_normals_consistent_tangent_plane(30)
     mesh, density = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(cloud, depth=8, linear_fit=True)
@@ -242,7 +300,8 @@ def clean_point_cloud_and_make_mesh(point_cloud_path: Path, mesh_dir: Path) -> t
     mesh = mesh.crop(cloud.get_axis_aligned_bounding_box())
     mesh.compute_vertex_normals()
     mesh_dir.mkdir(parents=True, exist_ok=True)
-    mesh_path = mesh_dir / "fast_building_mesh.ply"
+    output_stem = stem.removesuffix("_points")
+    mesh_path = mesh_dir / f"{output_stem}_mesh.ply"
     o3d.io.write_triangle_mesh(str(mesh_path), mesh, write_ascii=False, compressed=False)
 
     # A clearly labelled architectural proxy closes unseen roof/back surfaces.
@@ -252,7 +311,7 @@ def clean_point_cloud_and_make_mesh(point_cloud_path: Path, mesh_dir: Path) -> t
     proxy.translate(lower)
     proxy.compute_vertex_normals()
     proxy.paint_uniform_color([0.45, 0.48, 0.52])
-    proxy_path = mesh_dir / "fast_building_proxy_mesh.ply"
+    proxy_path = mesh_dir / f"{output_stem}_proxy_mesh.ply"
     o3d.io.write_triangle_mesh(str(proxy_path), proxy, write_ascii=False, compressed=False)
     print(
         f"[ok] clean cloud + preview mesh: {len(cloud.points):,} points, "

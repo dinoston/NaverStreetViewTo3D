@@ -9,6 +9,7 @@ from pathlib import Path
 class PipelineConfig:
     input_dir: str = "input/panoramas"
     screenshot_dir: str = "input/screenshots"
+    target_annotation_dir: str = "input/target"
     output_dir: str = "output"
     mask_vegetation: bool = True
     mask_model: str = "nvidia/segformer-b0-finetuned-ade-512-512"
@@ -32,6 +33,7 @@ class PipelineConfig:
     fast_max_images: int = 16
     fast_confidence_percentile: float = 55.0
     fast_pixel_stride: int = 2
+    splat_iterations: int = 7000
 
     @classmethod
     def load(cls, path: Path) -> "PipelineConfig":
