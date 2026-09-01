@@ -249,6 +249,10 @@ def clean_point_cloud_and_make_mesh(point_cloud_path: Path, mesh_dir: Path) -> t
     if len(points) < 100:
         raise RuntimeError("Too few building points to clean or mesh.")
     diagonal = float(np.linalg.norm(points.max(axis=0) - points.min(axis=0)))
+    # Dense panorama reconstruction can contain close to a million points.
+    # Downsample before DBSCAN; clustering the raw cloud is needlessly slow and
+    # does not add geometric detail to the resulting mesh.
+    cloud = cloud.voxel_down_sample(max(diagonal / 500.0, 1e-6))
     labels = np.asarray(cloud.cluster_dbscan(eps=diagonal * 0.018, min_points=20, print_progress=False))
     valid = labels >= 0
     if valid.any():

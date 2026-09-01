@@ -14,6 +14,7 @@ from .masking import mask_vegetation
 from .panorama import decompose, prepare_screenshots, validate_panoramas, validate_screenshots
 from .splat import prepare_building_splat_dataset
 from .sfm import filter_colmap_building_points, write_filtered_colmap_text_model
+from .scene import coherent_panorama_views, reconstruct_vggt_scene
 from .util import executable, images_in, run, write_status
 
 
@@ -291,6 +292,40 @@ class Pipeline:
             raise RuntimeError(f"3DGS training finished without the expected output: {point_cloud}")
         write_status(self.output, "splat", "complete", views=kept, gaussian_ply=str(point_cloud))
         print(f"[ok] building Gaussian Splat: {point_cloud}")
+
+    def panorama_fast(self, force: bool = False) -> None:
+        destination = self.output / "pointcloud" / "panorama_scene_points.ply"
+        if destination.exists() and not force:
+            print(f"[skip] panorama scene point cloud already exists: {destination}")
+            return
+        sparse_model = self.colmap / "sparse" / "0"
+        if not (sparse_model / "images.bin").exists():
+            self.align(force=False)
+        text_model = self.colmap / "text"
+        text_model.mkdir(parents=True, exist_ok=True)
+        colmap_bin = self._colmap_executable()
+        run(
+            [colmap_bin, "model_converter", "--input_path", sparse_model,
+             "--output_path", text_model, "--output_type", "TXT"],
+            self.logs / "panorama_fast.log",
+        )
+        registered = []
+        for line in (text_model / "images.txt").read_text(encoding="utf-8").splitlines():
+            fields = line.split()
+            if len(fields) >= 10 and fields[0].isdigit() and Path(fields[-1]).suffix:
+                registered.append(fields[-1])
+        selected = coherent_panorama_views(self.frames, registered, self.config.fast_max_images)
+        result = reconstruct_vggt_scene(
+            selected, destination, (self.project / self.config.vggt_repo).resolve(),
+            self.config.vggt_model, self.config.fast_confidence_percentile,
+            self.config.fast_pixel_stride,
+        )
+        mesh_result = clean_point_cloud_and_make_mesh(result, self.output / "mesh")
+        write_status(
+            self.output, "panorama_fast", "complete", point_cloud=str(result),
+            clean_point_cloud=str(mesh_result[0]) if mesh_result else None,
+            mesh_ply=str(mesh_result[1]) if mesh_result else None,
+        )
 
     def splat_mesh(self, force: bool = False) -> None:
         gaussian_ply = (

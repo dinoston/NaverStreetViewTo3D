@@ -16,6 +16,8 @@ input/screenshots/*
 !input/screenshots/.gitkeep
 input/target/*
 !input/target/.gitkeep
+input/panorama_target/
+input/panorama_only_screenshots/
 output/
 
 # Python caches/build products

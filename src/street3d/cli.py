@@ -16,7 +16,7 @@ def parser() -> argparse.ArgumentParser:
     sub = root.add_subparsers(dest="command", required=True)
     sub.add_parser("init")
     sub.add_parser("doctor")
-    for name in ("preprocess", "align", "train", "fast", "splat", "splat-mesh", "all"):
+    for name in ("preprocess", "align", "train", "fast", "panorama-fast", "splat", "splat-mesh", "all"):
         item = sub.add_parser(name)
         item.add_argument("--force", action="store_true")
         if name == "all":
@@ -56,6 +56,8 @@ def main() -> None:
             pipeline.mesh()
         elif args.command == "fast":
             pipeline.fast(args.force)
+        elif args.command == "panorama-fast":
+            pipeline.panorama_fast(args.force)
         elif args.command == "splat":
             pipeline.splat(args.force)
         elif args.command == "splat-mesh":

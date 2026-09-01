@@ -175,6 +175,24 @@ Z-up Poisson 메시를 생성합니다. 결과는 `output/mesh/gaussian_building
 Google 지도 영상은 제공 방식과 사용 목적에 따라 저장·재배포 조건이 다를 수 있으므로,
 사용 권한과 서비스 약관은 별도로 확인해야 합니다.
 
+파노라마만 별도 결과 폴더에서 시험할 때는 다음 세 명령을 실행합니다.
+
+```powershell
+.\run-panorama.ps1 -Stage preprocess -Force
+.\run-panorama.ps1 -Stage align -Force
+.\run-panorama.ps1 -Stage panorama-fast -Force
+```
+
+`panorama-fast`는 COLMAP이 실제로 연결한 주 시선 방향과 인접 방향만 골라 반대편
+장면이 섞이는 문제를 줄입니다. 하늘·나무·사람·차량도 제외하며 결과는 다음과 같습니다.
+
+- `output/panorama_test/pointcloud/panorama_scene_points.ply`: 원본 고밀도 점군
+- `output/panorama_test/pointcloud/panorama_scene_points_clean.ply`: 이상점 제거 점군
+- `output/panorama_test/mesh/panorama_scene_mesh.ply`: Poisson 초안 메시
+
+360° 파노라마 안에 여러 건물이 있으므로 특정 건물만 필요하면 해당 건물이 보이는
+perspective 화면 한 장에 빨간 외곽선을 그려 `input/panorama_target`에 넣어야 합니다.
+
 기본 `facebook/VGGT-1B` 체크포인트는 CC-BY-NC-4.0 연구용입니다. 회사 제품이나
 상업 배포에는 Meta의 승인을 받은 `VGGT-1B-Commercial` 체크포인트로 설정을
 변경해야 합니다.
