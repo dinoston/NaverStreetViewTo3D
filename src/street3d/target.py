@@ -63,7 +63,20 @@ def _red_polygon(image: np.ndarray) -> np.ndarray | None:
     contour = max(contours, key=cv2.contourArea)
     image_area = float(image.shape[0] * image.shape[1])
     if abs(cv2.contourArea(contour)) < image_area * 0.02:
-        ys, xs = np.nonzero(component)
+        # A mouse/freehand rectangle is often left open at one corner.  Join all
+        # long red strokes that belong to the outline before taking its hull;
+        # this is more reliable than treating the longest U-shaped stroke alone.
+        outline = np.zeros_like(component)
+        minimum_span = min(image.shape[:2]) * 0.12
+        for label in range(1, count):
+            area = int(stats[label, cv2.CC_STAT_AREA])
+            span = max(
+                int(stats[label, cv2.CC_STAT_WIDTH]),
+                int(stats[label, cv2.CC_STAT_HEIGHT]),
+            )
+            if area >= 25 and span >= minimum_span:
+                outline[labels == label] = 255
+        ys, xs = np.nonzero(outline if outline.any() else component)
         if len(xs) < 100:
             return None
         contour = cv2.convexHull(np.column_stack((xs, ys)).astype(np.int32))
@@ -101,6 +114,14 @@ def load_target_guides(
         path for path in annotation_dir.glob("*")
         if path.is_file() and path.suffix.casefold() in {".png", ".jpg", ".jpeg", ".webp"}
     ) if annotation_dir.exists() else []
+    annotation_names = {path.name for path in annotations}
+    annotations = [
+        path for path in annotations
+        if not (
+            path.name.startswith("inline_")
+            and path.name.removeprefix("inline_") in annotation_names
+        )
+    ]
     if not annotations:
         return []
 

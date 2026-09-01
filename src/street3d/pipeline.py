@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from .config import PipelineConfig
+from .architectural import make_architectural_solid
 from .fast import _latest_capture_session, clean_point_cloud_and_make_mesh, reconstruct_vggt
 from .gaussian_mesh import mesh_gaussian_centers
 from .masking import mask_vegetation
@@ -207,6 +208,14 @@ class Pipeline:
             (self.project / self.config.target_annotation_dir).resolve(),
         )
         mesh_result = clean_point_cloud_and_make_mesh(result, self.output / "mesh")
+        architectural_result = None
+        if mesh_result:
+            architectural_result = make_architectural_solid(
+                mesh_result[0], self.output / "mesh",
+                frames_dir=self.frames,
+                target_report_path=self.output / "target_reference.json",
+                masks_dir=self.output / "building_masks",
+            )
         sfm_result = None
         sfm_mesh_result = None
         sparse_model = self.colmap / "sparse" / "0"
@@ -231,6 +240,9 @@ class Pipeline:
             clean_point_cloud=str(mesh_result[0]) if mesh_result else None,
             preview_mesh=str(mesh_result[1]) if mesh_result else None,
             proxy_mesh=str(mesh_result[2]) if mesh_result else None,
+            final_regularized_point_cloud=str(architectural_result[0]) if architectural_result else None,
+            final_solid_ply=str(architectural_result[1]) if architectural_result else None,
+            final_solid_obj=str(architectural_result[2]) if architectural_result else None,
             sfm_point_cloud=str(sfm_result) if sfm_result else None,
             sfm_clean_point_cloud=str(sfm_mesh_result[0]) if sfm_mesh_result else None,
         )

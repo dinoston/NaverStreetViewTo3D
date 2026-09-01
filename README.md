@@ -128,6 +128,9 @@ cd C:\Users\KETI\Downloads\streetview-3d-builder
 - `output\pointcloud\fast_building_points_clean.ply`: 작은 분리 조각과 통계 이상점을 제거한 점군
 - `output\mesh\fast_building_mesh.ply`: 빠른 확인용 Poisson 메시
 - `output\mesh\fast_building_proxy_mesh.ply`: 관측되지 않은 뒤·지붕을 직육면체로 보완한 프록시 메시
+- `output\mesh\FINAL_building_solid.ply`: 찢어진 깊이를 보정한 폐곡면 건축형 최종 PLY
+- `output\mesh\FINAL_building_solid.obj`: 정면·측면 사진 텍스처를 자동 연결한 최종 OBJ
+- `output\pointcloud\FINAL_building_regularized_points.ply`: 벽·지붕이 평면인 최종 점군
 - `output\pointcloud\fast_building_points_preview.png`: 정면·상단·측면 점군 미리보기
 - `output\pointcloud\sfm_building_points_clean.ply`: 여러 사진에서 일치한 COLMAP 특징점만 남긴 보수적 기준 점군
 
@@ -155,6 +158,22 @@ Gaussian PLY는
 `splat-mesh`는 COLMAP 건물 경계와 Gaussian 불투명도·크기로 노이즈를 제거한 뒤
 Z-up Poisson 메시를 생성합니다. 결과는 `output/mesh/gaussian_building_mesh.ply`와
 `output/mesh/gaussian_building_mesh.obj`에 저장됩니다.
+
+### 연속 파노라마를 사용할 때
+
+스크린샷보다 원본 2:1 equirectangular 파노라마가 복원에 유리합니다. 파일은
+`input/panoramas`에 넣습니다. 한 촬영 위치에서 방향만 바꾼 이미지 여러 장보다,
+건물 주위를 따라 **서로 다른 위치에서 찍힌 파노라마 8~20장**이 중요합니다.
+
+- 촬영 위치 간격: 가능하면 약 3~8 m
+- 인접 위치끼리 보이는 영역 중복: 60~80% 이상
+- 해상도: 가급적 가로 4096 px 이상, 모든 파일을 비슷한 품질로 유지
+- 같은 날짜/계절의 연속 장면을 사용하고 지도 UI·검은 테두리는 제외
+- 건물의 정면뿐 아니라 모서리 양쪽과 측면이 포함되도록 위치를 선택
+- 같은 좌표의 회전 영상은 텍스처에는 도움되지만 3D 깊이에는 거의 도움되지 않음
+
+Google 지도 영상은 제공 방식과 사용 목적에 따라 저장·재배포 조건이 다를 수 있으므로,
+사용 권한과 서비스 약관은 별도로 확인해야 합니다.
 
 기본 `facebook/VGGT-1B` 체크포인트는 CC-BY-NC-4.0 연구용입니다. 회사 제품이나
 상업 배포에는 Meta의 승인을 받은 `VGGT-1B-Commercial` 체크포인트로 설정을

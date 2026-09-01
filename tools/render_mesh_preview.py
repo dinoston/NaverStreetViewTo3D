@@ -18,11 +18,12 @@ else:
     bpy.ops.wm.obj_import(filepath=str(mesh_path))
 obj = bpy.context.selected_objects[0]
 
-material = bpy.data.materials.new("Neutral building")
-material.diffuse_color = (0.46, 0.50, 0.56, 1.0)
-material.roughness = 0.82
-obj.data.materials.clear()
-obj.data.materials.append(material)
+if mesh_path.suffix.lower() == ".ply" or not obj.data.materials:
+    material = bpy.data.materials.new("Neutral building")
+    material.diffuse_color = (0.46, 0.50, 0.56, 1.0)
+    material.roughness = 0.82
+    obj.data.materials.clear()
+    obj.data.materials.append(material)
 
 corners = [obj.matrix_world @ Vector(corner) for corner in obj.bound_box]
 minimum = Vector((min(p.x for p in corners), min(p.y for p in corners), min(p.z for p in corners)))
