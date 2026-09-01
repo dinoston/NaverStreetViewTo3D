@@ -121,14 +121,36 @@ def write_filtered_colmap_text_model(
         line.strip() for line in (text_model / "images.txt").read_text(encoding="utf-8").splitlines()
         if line.strip() and not line.startswith("#")
     ]
-    kept_image_lines: list[str] = []
-    observations: dict[int, int] = {}
+    records: list[tuple[str, str, str, np.ndarray]] = []
     for index in range(0, len(source_lines), 2):
         header, points_line = source_lines[index], source_lines[index + 1]
         values = header.split()
         name = values[9] if len(values) >= 10 else ""
         if name not in masks:
             continue
+        rotation = _qvec_to_rotation(np.asarray(values[1:5], dtype=float))
+        translation = np.asarray(values[5:8], dtype=float)
+        center = -rotation.T @ translation
+        records.append((name, header, points_line, center))
+
+    # A single bad COLMAP pose can make 3DGS scene normalization thousands of
+    # times too large and cause every Gaussian to explode. Reject only extreme
+    # camera-center outliers while retaining legitimately distant street views.
+    if len(records) >= 4:
+        centers = np.stack([record[3] for record in records])
+        median_center = np.median(centers, axis=0)
+        distances = np.linalg.norm(centers - median_center, axis=1)
+        median_distance = float(np.median(distances))
+        mad = float(np.median(np.abs(distances - median_distance)))
+        limit = max(100.0, median_distance + 12.0 * max(mad, 1e-6))
+        rejected = [record[0] for record, distance in zip(records, distances) if distance > limit]
+        records = [record for record, distance in zip(records, distances) if distance <= limit]
+        if rejected:
+            print(f"[splat] rejected COLMAP camera-center outlier(s): {', '.join(rejected)}")
+
+    kept_image_lines: list[str] = []
+    observations: dict[int, int] = {}
+    for name, header, points_line, _ in records:
         kept_image_lines.extend((header, points_line))
         mask = masks[name]
         height, width = mask.shape

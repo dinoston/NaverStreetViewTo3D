@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .config import PipelineConfig
 from .fast import _latest_capture_session, clean_point_cloud_and_make_mesh, reconstruct_vggt
+from .gaussian_mesh import mesh_gaussian_centers
 from .masking import mask_vegetation
 from .panorama import decompose, prepare_screenshots, validate_panoramas, validate_screenshots
 from .splat import prepare_building_splat_dataset
@@ -80,7 +81,8 @@ class Pipeline:
             manifest.extend(pano_manifest)
         if valid_screenshots:
             manifest.extend(prepare_screenshots(
-                self.screenshot_dir, self.frames, self.config.jpeg_quality
+                self.screenshot_dir, self.frames, self.config.jpeg_quality,
+                (self.project / self.config.target_annotation_dir).resolve(),
             ))
         if self.config.mask_vegetation:
             if force and self.masks.exists():
@@ -277,6 +279,28 @@ class Pipeline:
             raise RuntimeError(f"3DGS training finished without the expected output: {point_cloud}")
         write_status(self.output, "splat", "complete", views=kept, gaussian_ply=str(point_cloud))
         print(f"[ok] building Gaussian Splat: {point_cloud}")
+
+    def splat_mesh(self, force: bool = False) -> None:
+        gaussian_ply = (
+            self.output / "3dgs_building" / "point_cloud"
+            / f"iteration_{self.config.splat_iterations}" / "point_cloud.ply"
+        )
+        reference_ply = self.output / "pointcloud" / "sfm_building_points.ply"
+        destination = self.output / "mesh" / "gaussian_building_mesh.ply"
+        if destination.exists() and not force:
+            print(f"[skip] Gaussian building mesh already exists: {destination}")
+            return
+        if not gaussian_ply.exists():
+            raise RuntimeError(f"Gaussian PLY is missing: {gaussian_ply}. Run the splat stage first.")
+        if not reference_ply.exists():
+            raise RuntimeError(f"Target SfM reference is missing: {reference_ply}. Run the fast stage first.")
+        _, ply_path, obj_path = mesh_gaussian_centers(
+            gaussian_ply, reference_ply, self.output / "mesh"
+        )
+        write_status(
+            self.output, "splat_mesh", "complete",
+            mesh_ply=str(ply_path), mesh_obj=str(obj_path),
+        )
 
     def all(self, force: bool = False, stop_after: str | None = None) -> None:
         stages = [("preprocess", self.preprocess), ("align", self.align), ("train", self.train), ("mesh", self.mesh)]

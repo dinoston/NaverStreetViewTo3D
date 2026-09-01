@@ -26,7 +26,7 @@ def _read_image(path: Path):
 
 
 def _write_jpeg(path: Path, image, quality: int) -> bool:
-    cv2, _ = _imports()
+    cv2, np = _imports()
     ok, encoded = cv2.imencode(".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, quality])
     if ok:
         encoded.tofile(str(path))
@@ -117,9 +117,12 @@ def decompose(input_dir: Path, output_dir: Path, face_size: int, fov: float, yaw
     return manifest
 
 
-def prepare_screenshots(input_dir: Path, output_dir: Path, jpeg_quality: int) -> list[dict[str, object]]:
+def prepare_screenshots(
+    input_dir: Path, output_dir: Path, jpeg_quality: int,
+    target_dir: Path | None = None,
+) -> list[dict[str, object]]:
     """Normalize ordinary perspective screenshots for COLMAP without reprojection."""
-    cv2, _ = _imports()
+    cv2, np = _imports()
     output_dir.mkdir(parents=True, exist_ok=True)
     manifest: list[dict[str, object]] = []
     for index, path in enumerate(images_in(input_dir)):
@@ -129,6 +132,26 @@ def prepare_screenshots(input_dir: Path, output_dir: Path, jpeg_quality: int) ->
         h, w = image.shape[:2]
         if w < 320 or h < 240:
             continue
+        # Allow the convenient workflow where annotated images are placed
+        # directly in input/screenshots. Preserve the guide, but inpaint the red
+        # stroke so it does not become facade texture or a COLMAP feature.
+        from .target import _red_polygon
+
+        rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        target_polygon = _red_polygon(rgb)
+        inline_target = target_polygon is not None
+        if inline_target:
+            if target_dir is not None:
+                import shutil
+
+                target_dir.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(path, target_dir / f"inline_{path.name}")
+            red, green, blue = rgb[..., 0], rgb[..., 1], rgb[..., 2]
+            red_stroke = (
+                (red > 190) & (red > green * 1.65) & (red > blue * 1.65) & (green < 135)
+            ).astype(np.uint8) * 255
+            red_stroke = cv2.dilate(red_stroke, np.ones((7, 7), np.uint8), iterations=1)
+            image = cv2.inpaint(image, red_stroke, 5, cv2.INPAINT_TELEA)
         # Keep generated filenames ASCII-only for COLMAP and Windows console compatibility.
         name = f"s{index:04d}.jpg"
         destination = output_dir / name
@@ -139,5 +162,6 @@ def prepare_screenshots(input_dir: Path, output_dir: Path, jpeg_quality: int) ->
             "input_type": "perspective_screenshot",
             "width": w,
             "height": h,
+            "inline_target_guide": inline_target,
         })
     return manifest

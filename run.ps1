@@ -1,5 +1,5 @@
 param(
-    [ValidateSet("doctor", "preprocess", "align", "train", "mesh", "fast", "splat", "all")]
+    [ValidateSet("doctor", "preprocess", "align", "train", "mesh", "fast", "splat", "splat-mesh", "all")]
     [string]$Stage = "all",
     [switch]$Force
 )
@@ -27,7 +27,7 @@ if (-not (Test-Path $exe)) {
     throw "Project environment not found. Run .\setup.ps1 first."
 }
 $arguments = @("--project", $PSScriptRoot, $Stage)
-if ($Force -and $Stage -in @("preprocess", "align", "train", "fast", "splat", "all")) {
+if ($Force -and $Stage -in @("preprocess", "align", "train", "fast", "splat", "splat-mesh", "all")) {
     $arguments += "--force"
 }
 & $exe @arguments

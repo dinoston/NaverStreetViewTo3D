@@ -26,4 +26,24 @@ def test_prepare_ordinary_screenshot(tmp_path):
 
     assert checks[0]["valid"] is True
     assert manifest[0]["input_type"] == "perspective_screenshot"
+    assert manifest[0]["inline_target_guide"] is False
     assert (output / manifest[0]["image"]).exists()
+
+
+def test_inline_red_outline_is_saved_as_guide_and_removed_from_camera_image(tmp_path):
+    source = tmp_path / "screenshots"
+    output = tmp_path / "frames"
+    targets = tmp_path / "target"
+    source.mkdir()
+    image = np.full((480, 640, 3), 180, dtype=np.uint8)
+    outline = np.array([[120, 410], [150, 100], [480, 70], [540, 400]], np.int32)
+    cv2.polylines(image, [outline], isClosed=True, color=(0, 0, 255), thickness=8)
+    cv2.imwrite(str(source / "marked.png"), image)
+
+    manifest = prepare_screenshots(source, output, jpeg_quality=95, target_dir=targets)
+    prepared = cv2.imread(str(output / manifest[0]["image"]))
+    red_pixels = (prepared[..., 2] > prepared[..., 1] * 1.5) & (prepared[..., 2] > 180)
+
+    assert manifest[0]["inline_target_guide"] is True
+    assert (targets / "inline_marked.png").exists()
+    assert red_pixels.sum() < 100

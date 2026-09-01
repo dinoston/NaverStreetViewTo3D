@@ -34,6 +34,46 @@ def _red_box(image: np.ndarray) -> tuple[int, int, int, int] | None:
     return x1, y1, x2, y2
 
 
+def _red_polygon(image: np.ndarray) -> np.ndarray | None:
+    """Return the user's largest red freehand outline as a simplified polygon."""
+    import cv2
+
+    red, green, blue = image[..., 0], image[..., 1], image[..., 2]
+    pixels = (
+        (red > 190) & (red > green * 1.65) & (red > blue * 1.65) & (green < 135)
+    ).astype(np.uint8)
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(pixels, connectivity=8)
+    if count <= 1:
+        return None
+    # The hand-drawn outline is normally the longest/largest connected red item;
+    # isolated signs, cars and Korean lettering form much smaller components.
+    component_id = max(
+        range(1, count),
+        key=lambda label: int(stats[label, cv2.CC_STAT_AREA])
+        * max(int(stats[label, cv2.CC_STAT_WIDTH]), int(stats[label, cv2.CC_STAT_HEIGHT])),
+    )
+    component = (labels == component_id).astype(np.uint8) * 255
+    gap = max(9, (min(image.shape[:2]) // 80) | 1)
+    component = cv2.morphologyEx(
+        component, cv2.MORPH_CLOSE, np.ones((gap, gap), np.uint8), iterations=2
+    )
+    contours, _ = cv2.findContours(component, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        return None
+    contour = max(contours, key=cv2.contourArea)
+    image_area = float(image.shape[0] * image.shape[1])
+    if abs(cv2.contourArea(contour)) < image_area * 0.02:
+        ys, xs = np.nonzero(component)
+        if len(xs) < 100:
+            return None
+        contour = cv2.convexHull(np.column_stack((xs, ys)).astype(np.int32))
+    perimeter = cv2.arcLength(contour, True)
+    polygon = cv2.approxPolyDP(contour, max(2.0, perimeter * 0.004), True)[:, 0]
+    if len(polygon) < 3 or abs(cv2.contourArea(polygon)) < image_area * 0.02:
+        return None
+    return polygon.astype(np.float32)
+
+
 def _features(image: np.ndarray, mask: np.ndarray | None = None):
     import cv2
 
@@ -74,8 +114,8 @@ def load_target_guides(
     serializable: list[dict[str, object]] = []
     for annotation_path in annotations:
         annotated = _rgb(annotation_path)
-        box = _red_box(annotated)
-        if box is None:
+        polygon = _red_polygon(annotated)
+        if polygon is None:
             continue
         red, green, blue = annotated[..., 0], annotated[..., 1], annotated[..., 2]
         red_mask = ((red > 190) & (red > green * 1.65) & (red > blue * 1.65)).astype(np.uint8)
@@ -97,9 +137,7 @@ def load_target_guides(
             continue
 
         inlier_count, source_path, homography = best
-        x1, y1, x2, y2 = box
-        corners = np.float32([[[x1, y1], [x2, y1], [x2, y2], [x1, y2]]])
-        mapped = cv2.perspectiveTransform(corners, homography)[0]
+        mapped = cv2.perspectiveTransform(polygon[None], homography)[0]
         source_image = source_cache[source_path][0]
         height, width = source_image.shape[:2]
         mapped[:, 0] = np.clip(mapped[:, 0], 0, width - 1)
@@ -130,6 +168,7 @@ def load_target_guides(
             "source_bbox": list(mapped_box),
             "match_inliers": inlier_count,
             "target_features": len(target_descriptors),
+            "outline_vertices": len(mapped),
         })
 
     if serializable:

@@ -71,8 +71,10 @@ This project is intended for research and prototyping in street-level 3D reconst
 ### 원하는 건물 빨간 박스로 지정하기
 
 주변 건물이나 나무가 함께 찍힌 경우 빨간 박스 지정이 결과를 크게 개선합니다.
-원본은 반드시 `input/screenshots`에 그대로 두고, 복사본에 **빨간색 테두리만** 그려
-`input/target`에 넣습니다. 파일명은 달라도 됩니다. 프로그램이 특징점을 이용해 원본을
+원본은 `input/screenshots`에 그대로 두고, 복사본에 **빨간색 테두리 또는 자유곡선 외곽선**을
+그려 `input/target`에 넣는 방식이 가장 안전합니다. 간편하게 빨간 선 이미지를
+`input/screenshots`에 바로 넣어도 프로그램이 가이드로 자동 복사하고 빨간 선을 제거한 뒤
+카메라 입력으로 사용합니다. 파일명은 달라도 됩니다. 프로그램이 특징점을 이용해 원본을
 찾고, 다른 시점에서도 같은 건물 영역을 자동 추적합니다.
 
 - 최소 1장으로 동작하지만 정면·왼쪽·오른쪽 3~5장에 각각 박스를 그리는 것을 권장
@@ -141,6 +143,7 @@ COLMAP 정렬 뒤, 빨간 박스로 추적된 유효 사진과 건물 점만으�
 .\run.ps1 -Stage align -Force
 .\run.ps1 -Stage fast -Force
 .\run.ps1 -Stage splat -Force
+.\run.ps1 -Stage splat-mesh -Force
 ```
 
 Gaussian PLY는
@@ -148,6 +151,10 @@ Gaussian PLY는
 기본 7,000회 학습은 이 PC에서 약 2~3분이며 `config.json`의
 `splat_iterations`로 조절할 수 있습니다. 스크린샷 사이 시차가 작거나 건물의 한 면만
 관측되면 입력 화면에서는 잘 보이더라도 자유 시점의 기하가 늘어질 수 있습니다.
+
+`splat-mesh`는 COLMAP 건물 경계와 Gaussian 불투명도·크기로 노이즈를 제거한 뒤
+Z-up Poisson 메시를 생성합니다. 결과는 `output/mesh/gaussian_building_mesh.ply`와
+`output/mesh/gaussian_building_mesh.obj`에 저장됩니다.
 
 기본 `facebook/VGGT-1B` 체크포인트는 CC-BY-NC-4.0 연구용입니다. 회사 제품이나
 상업 배포에는 Meta의 승인을 받은 `VGGT-1B-Commercial` 체크포인트로 설정을
